@@ -1,103 +1,85 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "../odbc-examples/odbc.h"
 
-/* #include "menu_template.h" */
-/* #ifndef A2BIS_MENU_TEMPLATE_H */
-/* #define A2BIS_MENU_TEMPLATE_H */
+/* Prototipos de las funciones */
 
-/* Prototypes:
- * Since in this example this functions are not used outside menu_template
- * it does not make sense to create an include file and export them
- * BUT in your code it will make sense to break this file in many files
- * and create several include files with the prototypes
- *
- * A static function in C is a function that has a scope that is limited
- * to its object file. This means that the static function is only
- * visible in its object file. Therefore,
- * you need to remove the static keyword from the declaration
- * if the function is declared in a file and used in another
- * */
 static int ShowMainMenu(void);
 
-static void ShowProductsMenu(void);
+static void ShowProductsMenu(SQLHDBC dbc);
 static int ShowProductsSubMenu(void);
+static void ProductStock(SQLHDBC dbc);
+static void ProductFind(SQLHDBC dbc);
 
-static void ShowOrdersMenu(void);
+static void ShowOrdersMenu(SQLHDBC dbc);
 static int ShowOrdersSubMenu(void);
+static void OrderOpen(SQLHDBC dbc);
 
-static void ShowCustomersMenu(void);
+static void ShowCustomersMenu(SQLHDBC dbc);
 static int ShowCustomersSubMenu(void);
 
-/* #endif //A2BIS_MENU_TEMPLATE_H */
 
 /**
- * @file menu_template.c
- * @author rmarabini
- * @date 15 April 2020
- * @brief File containing an example of a menu system with submenus
+ * @brief Entry point, shows and processes the main menu.
  *
- * The following program allows a user to select a nursery rhyme
- * or a fairy tail from a menu. The menu has two levels, the top
- * one allows to select between fairy tails or nursery rhymes. The
- * second level (sub-menus) allow to select either a particular
- * rhyme or tail.
- *
- * @see https://bytes.com/topic/c/answers/567136-creating-menus-sub-menus
- */
-
-
-/**
- * @brief Entry point, shows and process main menu.
- *
- * This function implements a loop that prints the main
- * menu, analyze the user selection and calls the
- * corresponding submenu
- *
- * @return 0 if no error
- * @author Marta y Yu lin
+ * @return EXIT_SUCCESS if no error, EXIT_FAILURE otherwise.
+ * @author Marta y Yu Lin
  */
 int main(void) {
     int nChoice = 0;
+    SQLHENV env;
+    SQLHDBC dbc;
+
+    if (!SQL_SUCCEEDED(odbc_connect(&env, &dbc))) {
+        printf("Error connecting to the database.\n");
+        return EXIT_FAILURE;
+    }
+
+    printf("Connected to the database successfully.\n");
 
     do {
         nChoice = ShowMainMenu();
 
         switch (nChoice) {
             case 1: {
-                ShowProductsMenu();
-            }
+                ShowProductsMenu(dbc);
                 break;
+            }
 
             case 2: {
-                ShowOrdersMenu();
-            }
+                ShowOrdersMenu(dbc);
                 break;
+            }
 
             case 3: {
-                ShowCustomersMenu();
-            }
+                ShowCustomersMenu(dbc);
                 break;
+            }
 
             case 4: {
                 printf("Bye Bye\n\n");
-            }
                 break;
+            }
         }
 
     } while (nChoice != 4);
 
-    return 0;
+    if (!SQL_SUCCEEDED(odbc_disconnect(env, dbc))) {
+        printf("Error disconnecting from the database.\n");
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
 }
 
 
 /**
- * @brief prints main menu and allows to select an option.
+ * @brief Prints the main menu and allows the user to select an option.
  *
- *
- * @return selected entry in the menu
+ * @return Selected entry in the menu.
  * @author Marta
  */
-
 static int ShowMainMenu(void) {
     int nSelected = 0;
     char buf[16];
@@ -128,7 +110,11 @@ static int ShowMainMenu(void) {
     return nSelected;
 }
 
-static void ShowProductsMenu(void) {
+
+/**
+ * @brief Shows and processes the products submenu.
+ */
+static void ShowProductsMenu(SQLHDBC dbc) {
     int nChoice = 0;
 
     do {
@@ -136,25 +122,30 @@ static void ShowProductsMenu(void) {
 
         switch (nChoice) {
             case 1: {
-                printf("Stock\n\n");
-            }
+                ProductStock(dbc);
                 break;
+            }
 
             case 2: {
-                printf("Find\n\n");
-            }
+                ProductFind(dbc);
                 break;
+            }
 
             case 3: {
                 printf("Back\n\n");
-            }
                 break;
+            }
         }
 
     } while (nChoice != 3);
 }
 
 
+/**
+ * @brief Prints the products submenu.
+ *
+ * @return Selected entry in the submenu.
+ */
 static int ShowProductsSubMenu(void) {
     int nSelected = 0;
     char buf[16];
@@ -183,38 +174,137 @@ static int ShowProductsSubMenu(void) {
     return nSelected;
 }
 
-static void ShowOrdersMenu(void) {
+
+/**
+ * @brief Implements the product stock functionality.
+ */
+static void ProductStock(SQLHDBC dbc) {
+    SQLHSTMT stmt;
+    SQLRETURN ret;
+    char productCode[16];
+    int stock;
+
+    printf("Enter product code > ");
+    fgets(productCode, 16, stdin);
+    productCode[strlen(productCode) - 1] = '\0';
+
+    SQLAllocHandle(SQL_HANDLE_STMT, dbc, &stmt);
+
+    SQLPrepare(stmt,
+               (SQLCHAR *)"SELECT quantityInStock FROM products WHERE productCode = ?",
+               SQL_NTS);
+
+    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT,
+                     SQL_C_CHAR, SQL_VARCHAR, 15, 0,
+                     productCode, 16, NULL);
+
+    SQLBindCol(stmt, 1, SQL_C_SLONG, &stock, 0, NULL);
+
+    ret = SQLExecute(stmt);
+
+    if (SQL_SUCCEEDED(ret) && SQL_SUCCEEDED(SQLFetch(stmt))) {
+        printf("Quantity in stock: %d\n\n", stock);
+    }
+    else {
+        printf("Product not found.\n\n");
+    }
+
+    SQLFreeHandle(SQL_HANDLE_STMT, stmt);
+}
+
+
+static void ProductFind(SQLHDBC dbc) {
+    SQLHSTMT stmt;
+    SQLRETURN ret;
+    char productName[51];
+    char search[53];
+    char productCode[16];
+    char name[71];
+
+    printf("Enter product name > ");
+    fgets(productName, 51, stdin);
+    productName[strcspn(productName, "\n")] = '\0';
+
+    sprintf(search, "%%%s%%", productName);
+
+    SQLAllocHandle(SQL_HANDLE_STMT, dbc, &stmt);
+
+    SQLPrepare(stmt,
+               (SQLCHAR *)"SELECT productCode, productName "
+                          "FROM products "
+                          "WHERE productName LIKE ? "
+                          "ORDER BY productCode",
+               SQL_NTS);
+
+    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT,
+                     SQL_C_CHAR, SQL_VARCHAR, 52, 0,
+                     search, 53, NULL);
+
+    SQLBindCol(stmt, 1, SQL_C_CHAR,
+               productCode, sizeof(productCode), NULL);
+
+    SQLBindCol(stmt, 2, SQL_C_CHAR,
+               name, sizeof(name), NULL);
+
+    ret = SQLExecute(stmt);
+
+    if (SQL_SUCCEEDED(ret)) {
+        while (SQL_SUCCEEDED(SQLFetch(stmt))) {
+            printf("%s - %s\n", productCode, name);
+        }
+        printf("\n");
+    }
+    else {
+        printf("Error searching products.\n\n");
+    }
+
+    SQLFreeHandle(SQL_HANDLE_STMT, stmt);
+}
+
+
+
+/**
+ * @brief Shows and processes the orders submenu.
+ */
+static void ShowOrdersMenu(SQLHDBC dbc) {
     int nChoice = 0;
+
+    (void)dbc;
 
     do {
         nChoice = ShowOrdersSubMenu();
 
         switch (nChoice) {
             case 1: {
-                printf("Open\n\n");
-            }
+                OrderOpen(dbc);
                 break;
+            }
 
             case 2: {
                 printf("Range\n\n");
-            }
                 break;
+            }
 
             case 3: {
                 printf("Detail\n\n");
-            }
                 break;
+            }
 
             case 4: {
                 printf("Back\n\n");
-            }
                 break;
+            }
         }
 
     } while (nChoice != 4);
 }
 
 
+/**
+ * @brief Prints the orders submenu.
+ *
+ * @return Selected entry in the submenu.
+ */
 static int ShowOrdersSubMenu(void) {
     int nSelected = 0;
     char buf[16];
@@ -244,8 +334,50 @@ static int ShowOrdersSubMenu(void) {
     return nSelected;
 }
 
-static void ShowCustomersMenu(void) {
+
+static void OrderOpen(SQLHDBC dbc) {
+    SQLHSTMT stmt;
+    SQLRETURN ret;
+    int orderNumber;
+
+    SQLAllocHandle(SQL_HANDLE_STMT, dbc, &stmt);
+
+    SQLPrepare(stmt,
+               (SQLCHAR *)"SELECT orderNumber FROM orders "
+                          "WHERE shippedDate IS NULL "
+                          "ORDER BY orderNumber",
+               SQL_NTS);
+
+    SQLBindCol(stmt, 1, SQL_C_SLONG,
+               &orderNumber, 0, NULL);
+
+    ret = SQLExecute(stmt);
+
+    if (SQL_SUCCEEDED(ret)) {
+        printf("Open orders:\n");
+
+        while (SQL_SUCCEEDED(SQLFetch(stmt))) {
+            printf("%d\n", orderNumber);
+        }
+
+        printf("\n");
+    }
+    else {
+        printf("Error searching orders.\n\n");
+    }
+
+    SQLFreeHandle(SQL_HANDLE_STMT, stmt);
+}
+
+
+
+/**
+ * @brief Shows and processes the customers submenu.
+ */
+static void ShowCustomersMenu(SQLHDBC dbc) {
     int nChoice = 0;
+
+    (void)dbc;
 
     do {
         nChoice = ShowCustomersSubMenu();
@@ -253,29 +385,34 @@ static void ShowCustomersMenu(void) {
         switch (nChoice) {
             case 1: {
                 printf("Find\n\n");
-            }
                 break;
+            }
 
             case 2: {
                 printf("List Products\n\n");
-            }
                 break;
+            }
 
             case 3: {
                 printf("Balance\n\n");
-            }
                 break;
+            }
 
             case 4: {
                 printf("Back\n\n");
-            }
                 break;
+            }
         }
 
     } while (nChoice != 4);
 }
 
 
+/**
+ * @brief Prints the customers submenu.
+ *
+ * @return Selected entry in the submenu.
+ */
 static int ShowCustomersSubMenu(void) {
     int nSelected = 0;
     char buf[16];
